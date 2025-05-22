@@ -5,9 +5,15 @@ public class GridBasedRoadGenerator : MonoBehaviour
 {
     public GameObject straightRoadPrefab;
     public GameObject crossIntersectionPrefab;
+    public GameObject treePrefab; // ?? Tree prefab slot (from Blender)
+
     public int mainRoadLength = 30;
     public int gridSpacing = 10;
-    public float branchChance = 0.4f; // 40% chance to branch from cross intersections
+    public float branchChance = 0.4f;
+
+    [Range(0f, 1f)]
+    public float treeDensity = 0.5f; // ?? 0 to 1 chance to spawn trees per side
+    public float treeOffset = 5f;    // ?? How far from the road to place trees
 
     private Dictionary<Vector2Int, GameObject> grid = new Dictionary<Vector2Int, GameObject>();
     private Queue<(Vector2Int gridPos, Vector3 direction)> openConnections = new Queue<(Vector2Int, Vector3)>();
@@ -34,8 +40,12 @@ public class GridBasedRoadGenerator : MonoBehaviour
 
             if (grid.ContainsKey(currentGrid)) continue;
 
-            bool isIntersection = currentGrid.x % gridSpacing == 0 && currentGrid.y % gridSpacing == 0;
-            GameObject prefab = isIntersection ? crossIntersectionPrefab : straightRoadPrefab;
+            bool isGridIntersection = currentGrid.x % gridSpacing == 0 && currentGrid.y % gridSpacing == 0;
+
+            // Only 30% of grid intersections become cross intersections
+            bool placeCrossIntersection = isGridIntersection && Random.value < 0.3f;
+
+            GameObject prefab = placeCrossIntersection ? crossIntersectionPrefab : straightRoadPrefab;
 
             if (PlaceRoad(prefab, currentGrid, direction))
             {
@@ -47,7 +57,7 @@ public class GridBasedRoadGenerator : MonoBehaviour
 
                     foreach (var dir in allDirs)
                     {
-                        if (dir == -direction || Random.value > branchChance) continue; // avoid backtracking
+                        if (dir == -direction || Random.value > branchChance) continue;
                         Vector2Int nextGrid = currentGrid + DirToGrid(dir);
                         if (!grid.ContainsKey(nextGrid))
                             openConnections.Enqueue((nextGrid, dir));
@@ -55,7 +65,6 @@ public class GridBasedRoadGenerator : MonoBehaviour
                 }
                 else
                 {
-                    // Continue straight
                     Vector2Int nextGrid = currentGrid + DirToGrid(direction);
                     if (!grid.ContainsKey(nextGrid))
                         openConnections.Enqueue((nextGrid, direction));
@@ -66,16 +75,42 @@ public class GridBasedRoadGenerator : MonoBehaviour
 
     bool PlaceRoad(GameObject prefab, Vector2Int gridPos, Vector3 direction)
     {
-        if (grid.ContainsKey(gridPos))
-            return false;
+        if (grid.ContainsKey(gridPos)) return false;
 
         Vector3 worldPos = new Vector3(gridPos.x, 0, gridPos.y) * gridSpacing;
         Quaternion rotation = Quaternion.LookRotation(direction, Vector3.up);
-        rotation *= Quaternion.Euler(-90, 0, 0); // flatten
+        rotation *= Quaternion.Euler(-90, 0, 0);
 
         GameObject road = Instantiate(prefab, worldPos, rotation, transform);
         grid[gridPos] = road;
+
+        SpawnTrees(worldPos, direction);
+
         return true;
+    }
+
+    void SpawnTrees(Vector3 roadPos, Vector3 roadDir)
+    {
+        if (treePrefab == null || treeDensity <= 0f) return;
+
+        Vector3 sideDir = Vector3.Cross(Vector3.up, roadDir.normalized);
+
+        for (int i = -1; i <= 1; i += 2) // left and right sides
+        {
+            if (Random.value > treeDensity) continue;
+
+            // Place trees strictly beside road with small jitter on XZ plane only
+            Vector3 baseOffset = sideDir * i * treeOffset;
+            Vector3 jitter = new Vector3(Random.Range(-0.5f, 0.5f), 0, Random.Range(-0.5f, 0.5f));
+            Vector3 offset = baseOffset + jitter;
+
+            Vector3 treePos = roadPos + offset;
+
+            // Rotate -90 on X plus random Y rotation
+            Quaternion treeRot = Quaternion.Euler(-90f, Random.Range(0f, 360f), 0f);
+
+            Instantiate(treePrefab, treePos, treeRot, transform);
+        }
     }
 
     Vector2Int DirToGrid(Vector3 dir)
