@@ -5,15 +5,15 @@ public class GridBasedRoadGenerator : MonoBehaviour
 {
     public GameObject straightRoadPrefab;
     public GameObject crossIntersectionPrefab;
-    public GameObject treePrefab; // ?? Tree prefab slot (from Blender)
+    public GameObject treePrefab;
 
     public int mainRoadLength = 30;
     public int gridSpacing = 10;
     public float branchChance = 0.4f;
 
     [Range(0f, 1f)]
-    public float treeDensity = 0.5f; // ?? 0 to 1 chance to spawn trees per side
-    public float treeOffset = 5f;    // ?? How far from the road to place trees
+    public float treeDensity = 0.5f;
+    public float treeOffset = 5f;
 
     private Dictionary<Vector2Int, GameObject> grid = new Dictionary<Vector2Int, GameObject>();
     private Queue<(Vector2Int gridPos, Vector3 direction)> openConnections = new Queue<(Vector2Int, Vector3)>();
@@ -41,8 +41,6 @@ public class GridBasedRoadGenerator : MonoBehaviour
             if (grid.ContainsKey(currentGrid)) continue;
 
             bool isGridIntersection = currentGrid.x % gridSpacing == 0 && currentGrid.y % gridSpacing == 0;
-
-            // Only 30% of grid intersections become cross intersections
             bool placeCrossIntersection = isGridIntersection && Random.value < 0.3f;
 
             GameObject prefab = placeCrossIntersection ? crossIntersectionPrefab : straightRoadPrefab;
@@ -54,13 +52,20 @@ public class GridBasedRoadGenerator : MonoBehaviour
                 if (prefab == crossIntersectionPrefab)
                 {
                     Vector3[] allDirs = { Vector3.forward, Vector3.back, Vector3.left, Vector3.right };
+                    bool added = false;
 
                     foreach (var dir in allDirs)
                     {
-                        if (dir == -direction || Random.value > branchChance) continue;
+                        if (dir == -direction) continue;
+
                         Vector2Int nextGrid = currentGrid + DirToGrid(dir);
-                        if (!grid.ContainsKey(nextGrid))
+                        if (grid.ContainsKey(nextGrid)) continue;
+
+                        if (!added || Random.value < branchChance)
+                        {
                             openConnections.Enqueue((nextGrid, dir));
+                            added = true;
+                        }
                     }
                 }
                 else
@@ -71,6 +76,8 @@ public class GridBasedRoadGenerator : MonoBehaviour
                 }
             }
         }
+
+        Debug.Log($"Road generation completed. Total placed: {placed}");
     }
 
     bool PlaceRoad(GameObject prefab, Vector2Int gridPos, Vector3 direction)
@@ -95,18 +102,15 @@ public class GridBasedRoadGenerator : MonoBehaviour
 
         Vector3 sideDir = Vector3.Cross(Vector3.up, roadDir.normalized);
 
-        for (int i = -1; i <= 1; i += 2) // left and right sides
+        for (int i = -1; i <= 1; i += 2)
         {
             if (Random.value > treeDensity) continue;
 
-            // Place trees strictly beside road with small jitter on XZ plane only
             Vector3 baseOffset = sideDir * i * treeOffset;
             Vector3 jitter = new Vector3(Random.Range(-0.5f, 0.5f), 0, Random.Range(-0.5f, 0.5f));
             Vector3 offset = baseOffset + jitter;
-
             Vector3 treePos = roadPos + offset;
 
-            // Rotate -90 on X plus random Y rotation
             Quaternion treeRot = Quaternion.Euler(-90f, Random.Range(0f, 360f), 0f);
 
             Instantiate(treePrefab, treePos, treeRot, transform);
