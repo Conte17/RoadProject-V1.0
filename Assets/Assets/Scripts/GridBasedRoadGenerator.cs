@@ -7,6 +7,7 @@ public class GridBasedRoadGenerator : MonoBehaviour
     public GameObject straightRoadPrefab;
     public GameObject crossIntersectionPrefab;
     public GameObject treePrefab;
+    public GameObject terrainPrefab;
 
     [Header("Road Settings")]
     public int mainRoadLength = 30;
@@ -17,11 +18,16 @@ public class GridBasedRoadGenerator : MonoBehaviour
     [Range(0f, 1f)] public float treeDensity = 0.5f;
     public float treeOffset = 5f;
 
+    [Header("Terrain Settings")]
+    public float terrainPadding = 20f;
+
     private Dictionary<Vector2Int, GameObject> grid = new Dictionary<Vector2Int, GameObject>();
     private Queue<(Vector2Int gridPos, Vector3 direction)> openConnections = new Queue<(Vector2Int, Vector3)>();
     private List<Vector3> treeSpawnCandidates = new List<Vector3>();
     private HashSet<Vector2Int> treeOccupiedGrid = new HashSet<Vector2Int>();
 
+    private Transform roadParent;
+    private Transform intersectionParent;
     private Transform treeParent;
 
     [ContextMenu("Generate Randomized Road Network")]
@@ -36,7 +42,13 @@ public class GridBasedRoadGenerator : MonoBehaviour
         treeSpawnCandidates.Clear();
         treeOccupiedGrid.Clear();
 
-        // Setup tree parent
+        // Setup parents
+        roadParent = new GameObject("Roads").transform;
+        roadParent.parent = transform;
+
+        intersectionParent = new GameObject("Intersections").transform;
+        intersectionParent.parent = transform;
+
         treeParent = new GameObject("Trees").transform;
         treeParent.parent = transform;
 
@@ -58,7 +70,7 @@ public class GridBasedRoadGenerator : MonoBehaviour
 
             GameObject prefab = placeCrossIntersection ? crossIntersectionPrefab : straightRoadPrefab;
 
-            if (PlaceRoad(prefab, currentGrid, direction))
+            if (PlaceRoad(prefab, currentGrid, direction, placeCrossIntersection))
             {
                 placed++;
 
@@ -92,17 +104,24 @@ public class GridBasedRoadGenerator : MonoBehaviour
         // Spawn trees only after all roads are placed
         SpawnAllTrees();
 
+        // Snap terrain under network
+        if (terrainPrefab != null)
+        {
+            SnapTerrainUnderNetwork();
+        }
+
         Debug.Log($"Road generation completed. Total placed: {placed}");
     }
 
-    bool PlaceRoad(GameObject prefab, Vector2Int gridPos, Vector3 direction)
+    bool PlaceRoad(GameObject prefab, Vector2Int gridPos, Vector3 direction, bool isIntersection = false)
     {
         if (grid.ContainsKey(gridPos)) return false;
 
         Vector3 worldPos = new Vector3(gridPos.x, 0, gridPos.y) * gridSpacing;
         Quaternion rotation = Quaternion.LookRotation(direction, Vector3.up) * Quaternion.Euler(-90, 0, 0);
 
-        GameObject road = Instantiate(prefab, worldPos, rotation, transform);
+        Transform parent = isIntersection ? intersectionParent : roadParent;
+        GameObject road = Instantiate(prefab, worldPos, rotation, parent);
         grid[gridPos] = road;
 
         QueueTreeSpawns(worldPos, direction);
@@ -138,7 +157,6 @@ public class GridBasedRoadGenerator : MonoBehaviour
 
             if (grid.ContainsKey(gridPos) || treeOccupiedGrid.Contains(gridPos))
             {
-                // Tree overlaps road or duplicate tree position
                 continue;
             }
 
@@ -148,27 +166,36 @@ public class GridBasedRoadGenerator : MonoBehaviour
         }
     }
 
+    void SnapTerrainUnderNetwork()
+    {
+        if (grid.Count == 0) return;
+
+        int minX = int.MaxValue, maxX = int.MinValue;
+        int minY = int.MaxValue, maxY = int.MinValue;
+
+        foreach (var pos in grid.Keys)
+        {
+            minX = Mathf.Min(minX, pos.x);
+            maxX = Mathf.Max(maxX, pos.x);
+            minY = Mathf.Min(minY, pos.y);
+            maxY = Mathf.Max(maxY, pos.y);
+        }
+
+        float width = (maxX - minX + 1) * gridSpacing + terrainPadding * 2;
+        float depth = (maxY - minY + 1) * gridSpacing + terrainPadding * 2;
+        float centerX = ((minX + maxX + 1) / 2f) * gridSpacing;
+        float centerZ = ((minY + maxY + 1) / 2f) * gridSpacing;
+
+        Vector3 centerPosition = new Vector3(centerX, 0, centerZ);
+        Vector3 terrainScale = new Vector3(width / 10f, 1f, depth / 10f);
+
+        GameObject terrain = Instantiate(terrainPrefab, centerPosition, Quaternion.identity, transform);
+        terrain.transform.localScale = terrainScale;
+        terrain.name = "Snapped Terrain";
+    }
+
     Vector2Int DirToGrid(Vector3 dir)
     {
         return Vector2Int.RoundToInt(new Vector2(dir.x, dir.z));
-    }
-
-    private void OnDrawGizmosSelected()
-    {
-        Gizmos.color = Color.red;
-        if (treeSpawnCandidates == null || grid == null) return;
-
-        foreach (var pos in treeSpawnCandidates)
-        {
-            Vector2Int gridPos = new Vector2Int(
-                Mathf.RoundToInt(pos.x / gridSpacing),
-                Mathf.RoundToInt(pos.z / gridSpacing)
-            );
-
-            if (grid.ContainsKey(gridPos))
-            {
-                Gizmos.DrawWireSphere(pos + Vector3.up * 2, 1f);
-            }
-        }
     }
 }
